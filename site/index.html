@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#123b72">
+  <title>Расписание занятий — Гимназия №19</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="hero">
+    <div class="wrap topbar">
+      <div class="brand">Расписание занятий<span>Гимназия №19</span></div>
+      <div id="updated" class="updated">Загрузка данных…</div>
+    </div>
+  </header>
+
+  <main class="wrap main">
+    <section class="card">
+      <div class="controls">
+        <label class="select-label">
+          <span id="selectTitle">Класс или группа</span>
+          <select id="classSelect" disabled><option>Загрузка…</option></select>
+        </label>
+        <div class="search-wrap">
+          <label for="classSearch">Быстрый поиск</label>
+          <input id="classSearch" type="search" placeholder="Например, 7а" autocomplete="off">
+        </div>
+        <button id="refresh" class="refresh" type="button" title="Обновить данные">↻ Обновить</button>
+      </div>
+
+      <div id="views" class="views" role="tablist" aria-label="Вид расписания">
+        <button type="button" class="view active" data-view="classes">Классы</button>
+        <button type="button" class="view" data-view="teachers">Учителя</button>
+        <button type="button" class="view" data-view="rooms">Кабинеты</button>
+      </div>
+
+      <nav id="days" class="days" aria-label="Дни недели"></nav>
+
+      <div class="heading-row">
+        <div>
+          <p id="eyebrow" class="eyebrow">РАСПИСАНИЕ КЛАССА</p>
+          <h1 id="heading">Загрузка…</h1>
+        </div>
+        <div id="lessonCount" class="lesson-count"></div>
+      </div>
+
+      <div id="notice" class="notice" hidden></div>
+      <div id="schedule" class="schedule" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <footer>
+    <span>Локальная информационная система · данные из программы «Ректор»</span>
+    <strong>Разработка: NG · Версия 1.0 (премию не дали)</strong>
+  </footer>
+  <script src="/app.js" defer></script>
+</body>
+</html>

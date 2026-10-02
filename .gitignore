@@ -1,0 +1,28 @@
+# Generated Rector exports may contain names and local filesystem paths.
+site/data/*
+!site/data/.gitkeep
+
+# Runtime data
+releases/
+uploads/
+*.rtt
+*.tar
+*.tar.gz
+
+# Credentials and local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*_ed25519
+*_rsa
+known_hosts
+
+# Editor and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+

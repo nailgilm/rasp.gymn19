@@ -1,0 +1,9 @@
+[Unit]
+Description=Renew the TLS certificate for rasp.gymn19.ru
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/renew-rasp-cert.sh
