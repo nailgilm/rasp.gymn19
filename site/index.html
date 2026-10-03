@@ -25,7 +25,7 @@
       <div class="admin-tabs" role="tablist"><button class="admin-tab active" data-admin-tab="replacements" type="button">⇄ Замены</button><button class="admin-tab" data-admin-tab="upload" type="button">↑ Загрузить расписание</button><button id="adminLogout" class="admin-logout" type="button">Выйти</button></div>
       <section id="admin-replacements" class="admin-panel">
         <div class="panel-intro"><h3>Замены на период</h3><p>Выберите отсутствующего учителя и даты. Система найдёт его уроки по календарным датам и предложит свободных преподавателей.</p></div>
-        <div class="utility-fields three-columns"><label><span>Отсутствующий учитель</span><select id="absenceTeacher"></select></label><label><span>Отсутствует с</span><input id="absenceFrom" type="date"></label><label><span>Отсутствует по</span><input id="absenceTo" type="date"></label></div>
+        <div class="utility-fields four-columns"><label><span>Поиск учителя</span><input id="absenceTeacherSearch" type="search" placeholder="Введите фамилию" autocomplete="off"></label><label><span>Отсутствующий учитель</span><select id="absenceTeacher"></select></label><label><span>Отсутствует с</span><input id="absenceFrom" type="date"></label><label><span>Отсутствует по</span><input id="absenceTo" type="date"></label></div>
         <button id="autoPlanSubstitutions" class="button-primary full-button" type="button">Найти уроки и подобрать замены</button>
         <div id="absencePlanResult" class="utility-result plan-result" aria-live="polite"><div class="result-empty">Укажите период и запустите автоматический подбор.</div></div>
         <div class="period-save"><p id="planHint" class="dialog-help">Изменения сохранятся только после подтверждения.</p><button id="saveAbsencePlan" class="button-primary" type="button" disabled>Сохранить замены</button></div>
@@ -41,7 +41,7 @@
   </dialog>
 
   <dialog id="freeRoomsDialog" class="utility-dialog"><form method="dialog"><div class="dialog-heading"><div><p class="eyebrow">ПОИСК КАБИНЕТА</p><h2>Свободные кабинеты</h2></div><button id="closeFreeRooms" class="dialog-close" type="button" aria-label="Закрыть">×</button></div><p class="dialog-help">Выберите день и урок — сайт проверит занятость всех кабинетов в текущем расписании.</p><div class="utility-fields two-columns"><label><span>День</span><select id="freeRoomDay"></select></label><label><span>Урок</span><select id="freeRoomLesson"></select></label></div><div id="freeRoomsResult" class="utility-result" aria-live="polite"></div><div class="dialog-actions"><button id="cancelFreeRooms" class="button-secondary" type="button">Закрыть</button></div></form></dialog>
-  <footer><span>Локальная информационная система · данные из программы «Ректор»</span><strong>Разработка: <a href="https://nailgilm.github.io/sysadmin-portfolio/" target="_blank" rel="noreferrer">NG</a> · Версия rasp.gymn 2.2.1 · <a href="https://github.com/nailgilm/rasp.gymn19" target="_blank" rel="noreferrer">GitHub</a> (премию не дали)</strong></footer>
+  <footer><span>Локальная информационная система · данные из программы «Ректор»</span><strong>Разработка: <a href="https://nailgilm.github.io/sysadmin-portfolio/" target="_blank" rel="noreferrer">NG</a> · Версия rasp.gymn 2.2.2 · <a href="https://github.com/nailgilm/rasp.gymn19" target="_blank" rel="noreferrer">GitHub</a> (премию не дали)</strong></footer>
   <script src="/app.js" defer></script>
 </body>
 </html>
