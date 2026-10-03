@@ -281,7 +281,7 @@ function teachersForClass(className) {
   return [...result].sort(naturalRu);
 }
 function subjectKeys(value) {
-  return value.split(' / ').map((part) => part.toLocaleLowerCase('ru').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  return value.split('/').map((part) => part.toLocaleLowerCase('ru').replace(/\s+/g, ' ').trim()).filter(Boolean);
 }
 function teachersForSubject(subject) {
   const targets = new Set(subjectKeys(subject));
@@ -412,7 +412,7 @@ function buildAbsencePlan() {
       const classNames = lesson.primary.split(/\s*(?:,|\/|;)\s*/).filter((name) => state.datasets.classes.has(name));
       if (!classNames.length) continue;
       const classLessons = classNames.map((className) => state.datasets.classes.get(className)?.get(day)?.find((item) => item.number === lesson.number)).filter(Boolean);
-      const subjects = [...new Set(classLessons.flatMap((item) => item.primary.split(' / ').map((subject) => subject.trim()).filter(Boolean)))];
+      const subjects = [...new Set(classLessons.flatMap((item) => item.primary.split('/').map((subject) => subject.trim()).filter(Boolean)))];
       const subjectSet = new Set(subjects.flatMap(teachersForSubject));
       subjectSet.delete(absent);
       const classSet = new Set(classNames.flatMap(teachersForClass));
