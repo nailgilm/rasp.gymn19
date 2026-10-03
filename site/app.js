@@ -4,6 +4,7 @@ const labels = {
   rooms: { select: 'Кабинет', search: 'Например, 212', eyebrow: 'РАСПИСАНИЕ КАБИНЕТА' }
 };
 const state = { datasets: { classes: new Map(), teachers: new Map(), rooms: new Map() }, view: 'classes', selected: {}, selectedDay: '' };
+const ALL_DAYS = 'Вся неделя';
 const $ = (id) => document.getElementById(id);
 
 function clean(cell) {
@@ -147,7 +148,7 @@ function defaultDay(days) {
 }
 function switchView(view) {
   state.view = view; const meta = labels[view]; const days = activeDays();
-  if (!days.includes(state.selectedDay)) state.selectedDay = defaultDay(days);
+  if (state.selectedDay !== ALL_DAYS && !days.includes(state.selectedDay)) state.selectedDay = defaultDay(days);
   document.querySelectorAll('.view').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
   $('selectTitle').textContent = meta.select; $('classSearch').placeholder = meta.search; $('classSearch').value = ''; $('eyebrow').textContent = meta.eyebrow;
   populateOptions(); populateDays(days); render();
@@ -159,17 +160,16 @@ function populateOptions(filter = '') {
   $('classSelect').value = state.selected[state.view]; $('classSelect').disabled = false;
 }
 function populateDays(days = activeDays()) {
-  $('days').innerHTML = days.map((day) => `<button type="button" class="day${day === state.selectedDay ? ' active' : ''}" data-day="${escapeHtml(day)}">${escapeHtml(day)}</button>`).join('');
+  $('days').innerHTML = [ALL_DAYS, ...days].map((day) => `<button type="button" class="day${day === state.selectedDay ? ' active' : ''}" data-day="${escapeHtml(day)}">${escapeHtml(day)}</button>`).join('');
 }
-function render() {
-  const name = state.selected[state.view]; const lessons = [...(state.datasets[state.view].get(name)?.get(state.selectedDay) || [])].sort((a,b) => a.number-b.number);
+function prepareLessons(lessons) {
+  lessons = [...lessons].sort((a,b) => a.number-b.number);
   const lastOccupied = lessons.findLastIndex((lesson) => lesson.primary || lesson.secondary);
-  const visibleLessons = lastOccupied >= 0 ? lessons.slice(0, lastOccupied + 1) : [];
-  const lessonTotal = lessons.filter((lesson) => lesson.primary || lesson.secondary).length;
-  $('heading').textContent = `${name} · ${state.selectedDay}`;
-  $('lessonCount').textContent = lessonTotal ? `${lessonTotal} ${plural(lessonTotal, 'урок', 'урока', 'уроков')}` : '';
-  if (!visibleLessons.length) { $('schedule').innerHTML = '<div class="empty-day">На этот день занятий нет</div>'; return; }
-  $('schedule').innerHTML = visibleLessons.map((lesson) => {
+  return lastOccupied >= 0 ? lessons.slice(0, lastOccupied + 1) : [];
+}
+function renderLessons(lessons) {
+  if (!lessons.length) return '<div class="empty-day compact">Занятий нет</div>';
+  return lessons.map((lesson) => {
     const empty = !lesson.primary && !lesson.secondary;
     const subject = empty
       ? '<span class="part no-lesson">Нет урока</span>'
@@ -182,6 +182,23 @@ function render() {
       : '<span class="room empty">—</span>';
     return `<article class="lesson${empty ? ' empty-lesson' : ''}"><div class="number">${lesson.number}</div><div class="subject">${subject}${teachers}</div><div class="rooms">${rooms}</div></article>`;
   }).join('');
+}
+function render() {
+  const name = state.selected[state.view];
+  const days = activeDays();
+  const schedule = state.datasets[state.view].get(name) || new Map();
+  if (state.selectedDay === ALL_DAYS) {
+    const total = days.reduce((sum, day) => sum + (schedule.get(day) || []).filter((lesson) => lesson.primary || lesson.secondary).length, 0);
+    $('heading').textContent = `${name} · Вся неделя`;
+    $('lessonCount').textContent = total ? `${total} ${plural(total, 'урок', 'урока', 'уроков')} за неделю` : '';
+    $('schedule').innerHTML = days.map((day) => `<section class="week-day"><h2>${escapeHtml(day)}</h2>${renderLessons(prepareLessons(schedule.get(day) || []))}</section>`).join('');
+    return;
+  }
+  const lessons = prepareLessons(schedule.get(state.selectedDay) || []);
+  const lessonTotal = lessons.filter((lesson) => lesson.primary || lesson.secondary).length;
+  $('heading').textContent = `${name} · ${state.selectedDay}`;
+  $('lessonCount').textContent = lessonTotal ? `${lessonTotal} ${plural(lessonTotal, 'урок', 'урока', 'уроков')}` : '';
+  $('schedule').innerHTML = lessons.length ? renderLessons(lessons) : '<div class="empty-day">На этот день занятий нет</div>';
 }
 function plural(n, one, few, many) { const a=n%10,b=n%100; return a===1&&b!==11?one:a>=2&&a<=4&&(b<12||b>14)?few:many; }
 function escapeHtml(value) { return String(value).replace(/[&<>"]/g,(ch)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[ch]); }
