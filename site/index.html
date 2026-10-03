@@ -60,11 +60,29 @@
         </div>
         <button id="closeUpload" class="dialog-close" type="button" aria-label="Закрыть">×</button>
       </div>
-      <p class="dialog-help">Выберите файл <strong>Расписание.rtt</strong> из программы «Ректор». После проверки он автоматически появится на сайте.</p>
-      <label class="upload-field">
-        <span>Файл расписания</span>
-        <input id="scheduleFile" type="file" accept=".rtt,application/octet-stream" required>
-      </label>
+      <div class="upload-guide">
+        <strong>Подготовьте три HTML-экспорта в «Ректоре»:</strong>
+        <ol>
+          <li>расписание по классам;</li>
+          <li>расписание по учителям;</li>
+          <li>расписание по кабинетам.</li>
+        </ol>
+        <p>В каждом поле выберите сразу <strong>все файлы index*.html</strong> из соответствующей папки: основной <strong>index.html</strong> и все нумерованные страницы <strong>index0.html, index1.html…</strong>. Количество нумерованных страниц может отличаться.</p>
+      </div>
+      <div class="file-grid">
+        <label class="upload-field">
+          <span>1. Классы — все index*.html</span>
+          <input id="classesFiles" type="file" accept=".html,.htm,text/html" multiple required>
+        </label>
+        <label class="upload-field">
+          <span>2. Учителя — все index*.html</span>
+          <input id="teachersFiles" type="file" accept=".html,.htm,text/html" multiple required>
+        </label>
+        <label class="upload-field">
+          <span>3. Кабинеты — все index*.html</span>
+          <input id="roomsFiles" type="file" accept=".html,.htm,text/html" multiple required>
+        </label>
+      </div>
       <label class="upload-field">
         <span>Пароль загрузки</span>
         <input id="uploadPassword" type="password" autocomplete="current-password" required>
@@ -79,7 +97,7 @@
 
   <footer>
     <span>Локальная информационная система · данные из программы «Ректор»</span>
-    <strong>Разработка: <a href="https://nailgilm.github.io/sysadmin-portfolio/" target="_blank" rel="noreferrer">NG</a> · Версия rasp.gymn 1.2.0 · <a href="https://github.com/nailgilm/rasp.gymn19" target="_blank" rel="noreferrer">GitHub</a> (премию не дали)</strong>
+    <strong>Разработка: <a href="https://nailgilm.github.io/sysadmin-portfolio/" target="_blank" rel="noreferrer">NG</a> · Версия rasp.gymn 2.0.0 · <a href="https://github.com/nailgilm/rasp.gymn19" target="_blank" rel="noreferrer">GitHub</a> (премию не дали)</strong>
   </footer>
   <script src="/app.js" defer></script>
 </body>

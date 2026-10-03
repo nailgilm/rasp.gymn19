@@ -196,47 +196,38 @@ const uploadDialog = $('uploadDialog');
 const uploadForm = $('uploadForm');
 const uploadStatus = $('uploadStatus');
 const submitUpload = $('submitUpload');
-let uploadPoll = null;
 
 function showUploadStatus(message, type = '') {
   uploadStatus.textContent = message;
   uploadStatus.className = `upload-status${type ? ` ${type}` : ''}`;
   uploadStatus.hidden = false;
 }
-function stopUploadPoll() {
-  if (uploadPoll) clearTimeout(uploadPoll);
-  uploadPoll = null;
-}
 function closeUploadDialog() {
-  stopUploadPoll();
   uploadDialog.close();
 }
-async function pollUploadStatus(password, attempts = 0) {
-  try {
-    const response = await fetch('/api/schedule-upload/status', {
-      cache: 'no-store', headers: { Authorization: `Bearer ${password}` }
-    });
-    const result = await response.json();
-    if (!response.ok) throw new Error(result.error || 'Не удалось проверить состояние');
-    const types = { success: 'success', error: 'error' };
-    showUploadStatus(result.message || 'Файл ожидает обработки.', types[result.status] || '');
-    if (result.status === 'success') {
-      submitUpload.disabled = false;
-      submitUpload.textContent = 'Загрузить';
-      await load();
-      return;
-    }
-    if (result.status === 'error') {
-      submitUpload.disabled = false;
-      submitUpload.textContent = 'Повторить';
-      return;
-    }
-    if (attempts < 120) uploadPoll = setTimeout(() => pollUploadStatus(password, attempts + 1), 3000);
-  } catch (error) {
-    showUploadStatus(error.message, 'error');
-    submitUpload.disabled = false;
-    submitUpload.textContent = 'Повторить';
+function toBase64(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let offset = 0; offset < bytes.length; offset += 32768) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
   }
+  return btoa(binary);
+}
+async function collectHtmlFiles(inputId, title) {
+  const files = [...$(inputId).files];
+  if (!files.length) throw new Error(`Выберите HTML-файлы раздела «${title}»`);
+  const names = files.map((file) => file.name.toLocaleLowerCase('ru'));
+  if (names.some((name) => !/^index(?:\d+)?\.html?$/i.test(name))) {
+    throw new Error(`В разделе «${title}» можно выбирать только файлы index*.html`);
+  }
+  if (new Set(names).size !== names.length) throw new Error(`В разделе «${title}» есть повторяющиеся имена файлов`);
+  if (!names.includes('index.html')) throw new Error(`В разделе «${title}» не выбран главный файл index.html`);
+  const mainFile = files[names.indexOf('index.html')];
+  const indexText = new TextDecoder('windows-1251').decode(await mainFile.arrayBuffer());
+  const referenced = [...indexText.matchAll(/index\d+\.html?/gi)].map((match) => match[0].toLocaleLowerCase('ru'));
+  const missing = [...new Set(referenced)].filter((name) => !names.includes(name));
+  if (missing.length) throw new Error(`Для раздела «${title}» не выбраны: ${missing.join(', ')}`);
+  return Promise.all(files.map(async (file) => ({ name: file.name, content: toBase64(await file.arrayBuffer()) })));
 }
 
 $('openUpload').addEventListener('click', () => {
@@ -248,31 +239,35 @@ $('openUpload').addEventListener('click', () => {
 });
 $('closeUpload').addEventListener('click', closeUploadDialog);
 $('cancelUpload').addEventListener('click', closeUploadDialog);
-uploadDialog.addEventListener('cancel', stopUploadPoll);
 uploadForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  stopUploadPoll();
-  const file = $('scheduleFile').files[0];
   const password = $('uploadPassword').value;
-  if (!file || !password) return;
+  if (!password) return;
   submitUpload.disabled = true;
-  submitUpload.textContent = 'Загрузка…';
-  showUploadStatus('Передача файла на сервер…');
+  submitUpload.textContent = 'Подготовка…';
+  showUploadStatus('Проверка выбранных HTML-файлов…');
   try {
-    const response = await fetch('/api/schedule-upload/upload', {
+    const datasets = {
+      classes: await collectHtmlFiles('classesFiles', 'Классы'),
+      teachers: await collectHtmlFiles('teachersFiles', 'Учителя'),
+      rooms: await collectHtmlFiles('roomsFiles', 'Кабинеты')
+    };
+    submitUpload.textContent = 'Публикация…';
+    showUploadStatus('Передача полного комплекта на сервер…');
+    const response = await fetch('/api/schedule-upload/upload-html', {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${password}`,
-        'Content-Type': 'application/octet-stream',
-        'X-Filename': encodeURIComponent(file.name)
+        'Content-Type': 'application/json; charset=utf-8'
       },
-      body: file
+      body: JSON.stringify({ datasets })
     });
     const result = await response.json();
     if (!response.ok) throw new Error(result.error || 'Не удалось загрузить файл');
-    showUploadStatus(result.message || 'Файл принят.');
-    submitUpload.textContent = 'Обработка…';
-    pollUploadStatus(password);
+    showUploadStatus(`${result.message} Загружено файлов: ${result.files}.`, 'success');
+    submitUpload.disabled = false;
+    submitUpload.textContent = 'Загрузить ещё раз';
+    await load();
   } catch (error) {
     showUploadStatus(error.message, 'error');
     submitUpload.disabled = false;

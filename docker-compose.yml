@@ -24,13 +24,14 @@ services:
     restart: unless-stopped
     environment:
       UPLOAD_PASSWORD: ${SCHEDULE_UPLOAD_PASSWORD:?set SCHEDULE_UPLOAD_PASSWORD}
-      PUBLISH_TOKEN: ${SCHEDULE_PUBLISH_TOKEN:?set SCHEDULE_PUBLISH_TOKEN}
       UPLOAD_DATA_DIR: /data
-      UPLOAD_MAX_BYTES: 8388608
+      SCHEDULE_DATA_DIR: /schedule-data
+      UPLOAD_MAX_BYTES: 16777216
     command: ["python", "/app/upload_api.py"]
     volumes:
       - ./server/upload-api/upload_api.py:/app/upload_api.py:ro
       - ./upload-queue:/data
+      - ./site/data:/schedule-data
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
       interval: 30s
