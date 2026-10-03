@@ -36,6 +36,11 @@
         <button type="button" class="view" data-view="rooms">Кабинеты</button>
       </div>
 
+      <div class="schedule-actions" aria-label="Инструменты расписания">
+        <button id="openSubstitution" class="schedule-action" type="button">⇄ Замена учителя</button>
+        <button id="openFreeRooms" class="schedule-action" type="button">□ Свободные кабинеты</button>
+      </div>
+
       <nav id="days" class="days" aria-label="Дни недели"></nav>
 
       <div class="heading-row">
@@ -50,6 +55,61 @@
       <div id="schedule" class="schedule" aria-live="polite"></div>
     </section>
   </main>
+
+  <dialog id="substitutionDialog" class="utility-dialog">
+    <form method="dialog">
+      <div class="dialog-heading">
+        <div><p class="eyebrow">ПОИСК ЗАМЕНЫ</p><h2>Замена учителя</h2></div>
+        <button id="closeSubstitution" class="dialog-close" type="button" aria-label="Закрыть">×</button>
+      </div>
+      <p class="dialog-help">Показываются свободные в это время учителя выбранного класса и преподаватели того же предмета из других классов.</p>
+      <section class="absence-planner">
+        <h3>Отсутствие на период</h3>
+        <div class="utility-fields three-columns">
+          <label><span>Отсутствующий учитель</span><select id="absenceTeacher"></select></label>
+          <label><span>Отсутствует с</span><input id="absenceFrom" type="date"></label>
+          <label><span>Отсутствует по</span><input id="absenceTo" type="date"></label>
+        </div>
+        <button id="autoPlanSubstitutions" class="schedule-action full-button" type="button">⌁ Автоматически подобрать предметников</button>
+        <div id="absencePlanResult" class="utility-result" aria-live="polite"><div class="result-empty">Укажите период и запустите автоматический подбор.</div></div>
+        <div class="period-save">
+          <label><span>Пароль изменения</span><input id="absencePassword" type="password" autocomplete="current-password"></label>
+          <button id="saveAbsencePlan" class="button-primary" type="button" disabled>Применить на весь период</button>
+        </div>
+      </section>
+      <div class="section-divider"><span>Разовая замена одного урока</span></div>
+      <div class="utility-fields">
+        <label><span>Класс</span><select id="subClass"></select></label>
+        <label><span>День</span><select id="subDay"></select></label>
+        <label><span>Урок</span><select id="subLesson"></select></label>
+        <label><span>Отсутствующий учитель</span><select id="subTeacher"></select></label>
+        <label><span>Назначить на замену</span><select id="subReplacement"></select></label>
+        <label><span>Пароль изменения</span><input id="subPassword" type="password" autocomplete="current-password"></label>
+      </div>
+      <div id="substitutionResult" class="utility-result" aria-live="polite"></div>
+      <div class="dialog-actions">
+        <button id="removeSubstitution" class="button-danger" type="button" hidden>Снять замену</button>
+        <button id="cancelSubstitution" class="button-secondary" type="button">Закрыть</button>
+        <button id="saveSubstitution" class="button-primary" type="button">Назначить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="freeRoomsDialog" class="utility-dialog">
+    <form method="dialog">
+      <div class="dialog-heading">
+        <div><p class="eyebrow">ПОИСК КАБИНЕТА</p><h2>Свободные кабинеты</h2></div>
+        <button id="closeFreeRooms" class="dialog-close" type="button" aria-label="Закрыть">×</button>
+      </div>
+      <p class="dialog-help">Выберите день и урок — сайт проверит занятость всех кабинетов в текущем расписании.</p>
+      <div class="utility-fields two-columns">
+        <label><span>День</span><select id="freeRoomDay"></select></label>
+        <label><span>Урок</span><select id="freeRoomLesson"></select></label>
+      </div>
+      <div id="freeRoomsResult" class="utility-result" aria-live="polite"></div>
+      <div class="dialog-actions"><button id="cancelFreeRooms" class="button-secondary" type="button">Закрыть</button></div>
+    </form>
+  </dialog>
 
   <dialog id="uploadDialog" class="upload-dialog">
     <form id="uploadForm" method="dialog">
@@ -97,7 +157,7 @@
 
   <footer>
     <span>Локальная информационная система · данные из программы «Ректор»</span>
-    <strong>Разработка: <a href="https://nailgilm.github.io/sysadmin-portfolio/" target="_blank" rel="noreferrer">NG</a> · Версия rasp.gymn 2.1.1 · <a href="https://github.com/nailgilm/rasp.gymn19" target="_blank" rel="noreferrer">GitHub</a> (премию не дали)</strong>
+    <strong>Разработка: <a href="https://nailgilm.github.io/sysadmin-portfolio/" target="_blank" rel="noreferrer">NG</a> · Версия rasp.gymn 2.1.2 · <a href="https://github.com/nailgilm/rasp.gymn19" target="_blank" rel="noreferrer">GitHub</a> (премию не дали)</strong>
   </footer>
   <script src="/app.js" defer></script>
 </body>

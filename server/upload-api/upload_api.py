@@ -10,7 +10,7 @@ import tarfile
 import tempfile
 import threading
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -19,6 +19,7 @@ PUBLIC_DATA = Path(os.environ.get("SCHEDULE_DATA_DIR", "/schedule-data"))
 MAX_BYTES = int(os.environ.get("UPLOAD_MAX_BYTES", str(16 * 1024 * 1024)))
 UPLOAD_PASSWORD = os.environ.get("UPLOAD_PASSWORD", "")
 STATUS = DATA / "status.json"
+SUBSTITUTIONS = DATA / "substitutions.json"
 ARCHIVE = DATA / "html-archive"
 DATASETS = ("classes", "teachers", "rooms")
 FILE_NAME = re.compile(r"^index(?:\d+)?\.html?$", re.IGNORECASE)
@@ -42,6 +43,90 @@ def write_status(value):
     temporary = STATUS.with_suffix(".json.tmp")
     temporary.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
     os.replace(temporary, STATUS)
+
+
+def read_substitutions():
+    try:
+        value = json.loads(SUBSTITUTIONS.read_text(encoding="utf-8"))
+        return value if isinstance(value, list) else []
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def write_substitutions(value):
+    DATA.mkdir(parents=True, exist_ok=True)
+    temporary = SUBSTITUTIONS.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
+    os.replace(temporary, SUBSTITUTIONS)
+
+
+def substitution_key(value):
+    return (value.get("className"), value.get("day"), value.get("lesson"))
+
+
+def update_substitution(payload):
+    action = payload.get("action", "set")
+    if action == "set-period":
+        absent = str(payload.get("absentTeacher", "")).strip()
+        date_from = str(payload.get("dateFrom", "")).strip()
+        date_to = str(payload.get("dateTo", "")).strip()
+        plan = payload.get("plan")
+        try:
+            start = date.fromisoformat(date_from)
+            finish = date.fromisoformat(date_to)
+        except ValueError:
+            raise ValueError("Неверно указан период отсутствия") from None
+        if not absent or finish < start or (finish - start).days > 62 or not isinstance(plan, list) or not plan:
+            raise ValueError("Проверьте учителя, период и план замен")
+        period_id = uuid.uuid4().hex
+        prepared = []
+        for item in plan:
+            class_name = str(item.get("className", "")).strip()
+            day = str(item.get("day", "")).strip()
+            replacement = str(item.get("replacementTeacher", "")).strip()
+            try:
+                lesson = int(item.get("lesson", 0))
+            except (TypeError, ValueError):
+                lesson = 0
+            if not class_name or not day or not replacement or replacement == absent or lesson < 1 or lesson > 20:
+                raise ValueError("План содержит незаполненную замену")
+            prepared.append({
+                "className": class_name, "day": day, "lesson": lesson,
+                "absentTeacher": absent, "replacementTeacher": replacement,
+                "dateFrom": date_from, "dateTo": date_to,
+                "periodId": period_id, "createdAt": utc_now(),
+            })
+        keys = {substitution_key(item) for item in prepared}
+        current = [item for item in read_substitutions() if substitution_key(item) not in keys]
+        current.extend(prepared)
+        write_substitutions(current)
+        return {"status": "success", "message": "План замен на период сохранён.", "substitutions": current, "periodId": period_id}
+    class_name = str(payload.get("className", "")).strip()
+    day = str(payload.get("day", "")).strip()
+    absent = str(payload.get("absentTeacher", "")).strip()
+    replacement = str(payload.get("replacementTeacher", "")).strip()
+    try:
+        lesson = int(payload.get("lesson", 0))
+    except (TypeError, ValueError):
+        lesson = 0
+    if not class_name or not day or lesson < 1 or lesson > 20:
+        raise ValueError("Не указаны класс, день или номер урока")
+    current = [item for item in read_substitutions() if substitution_key(item) != (class_name, day, lesson)]
+    if action == "remove":
+        write_substitutions(current)
+        return {"status": "success", "message": "Замена снята.", "substitutions": current}
+    if not absent or not replacement or absent == replacement:
+        raise ValueError("Нужно выбрать отсутствующего и заменяющего учителя")
+    current.append({
+        "className": class_name,
+        "day": day,
+        "lesson": lesson,
+        "absentTeacher": absent,
+        "replacementTeacher": replacement,
+        "createdAt": utc_now(),
+    })
+    write_substitutions(current)
+    return {"status": "success", "message": "Замена назначена.", "substitutions": current}
 
 
 def validate_payload(payload):
@@ -131,6 +216,7 @@ def publish(files, total_size):
                 os.fsync(stream.fileno())
             os.chmod(temporary, 0o644)
             os.replace(temporary, PUBLIC_DATA / "version.json")
+            write_substitutions([])
         except Exception:
             for dataset in moved:
                 current = PUBLIC_DATA / dataset
@@ -186,18 +272,40 @@ class Handler(BaseHTTPRequestHandler):
         return self.rfile.read(length)
 
     def do_GET(self):
-        if self.path == "/healthz":
+        path = self.path.split("?", 1)[0]
+        if path == "/healthz":
             self.send_json(200, {"ok": True})
             return
-        if self.path == "/status":
+        if path == "/status":
             if not self.authorized():
                 self.send_json(401, {"error": "Неверный пароль"})
                 return
             self.send_json(200, read_status())
             return
+        if path == "/substitutions":
+            self.send_json(200, {"substitutions": read_substitutions()})
+            return
         self.send_json(404, {"error": "not found"})
 
     def do_POST(self):
+        if self.path == "/substitutions":
+            if not self.authorized():
+                self.send_json(401, {"error": "Неверный пароль"})
+                return
+            body = self.read_body()
+            if body is None:
+                self.send_json(400, {"error": "Пустой запрос"})
+                return
+            try:
+                payload = json.loads(body.decode("utf-8"))
+                with PUBLISH_LOCK:
+                    result = update_substitution(payload)
+                self.send_json(200, result)
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self.send_json(400, {"error": "Повреждённый запрос"})
+            except ValueError as error:
+                self.send_json(400, {"error": str(error)})
+            return
         if self.path != "/upload-html":
             self.send_json(404, {"error": "not found"})
             return
