@@ -5,6 +5,7 @@ site/data/*
 # Runtime data
 releases/
 uploads/
+upload-queue/
 *.rtt
 *.tar
 *.tar.gz
@@ -25,4 +26,3 @@ known_hosts
 .DS_Store
 Thumbs.db
 desktop.ini
-

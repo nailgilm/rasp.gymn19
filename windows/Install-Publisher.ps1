@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$PackageRoot = (Split-Path -Parent $PSScriptRoot),
-    [string]$PrivateKey = (Join-Path $PSScriptRoot 'schedule_publisher_ed25519')
+    [string]$PrivateKey = (Join-Path $PSScriptRoot 'schedule_publisher_ed25519'),
+    [string]$QueueToken = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,6 +13,9 @@ $scriptTarget = Join-Path $target 'Publish-Schedule.ps1'
 # Windows PowerShell 5.1 требует BOM для корректного чтения русских строк.
 [IO.File]::WriteAllText($scriptTarget, [IO.File]::ReadAllText($scriptSource), [Text.UTF8Encoding]::new($true))
 Copy-Item $PrivateKey (Join-Path $target 'schedule_publisher_ed25519') -Force
+if ($QueueToken) {
+    [IO.File]::WriteAllText((Join-Path $target 'upload-token.txt'), $QueueToken, [Text.UTF8Encoding]::new($false))
+}
 
 $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $acl = Get-Acl (Join-Path $target 'schedule_publisher_ed25519')
@@ -21,7 +25,7 @@ $acl.AddAccessRule($rule)
 Set-Acl (Join-Path $target 'schedule_publisher_ed25519') $acl
 
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\ProgramData\Gymn19Schedule\Publish-Schedule.ps1"'
-$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(2) -RepetitionInterval (New-TimeSpan -Minutes 5)
+$trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
 $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 3) -MultipleInstances IgnoreNew
 Register-ScheduledTask -TaskName 'Gymn19 Schedule Publisher' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
@@ -34,4 +38,4 @@ $shortcut.WorkingDirectory = $target
 $shortcut.Description = 'Обновить расписание на локальном сайте'
 $shortcut.Save()
 
-Write-Host 'Автопубликация установлена. Проверка выполняется каждые 5 минут.'
+Write-Host 'Автопубликация установлена. Проверка выполняется каждую минуту.'

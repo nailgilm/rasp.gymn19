@@ -6,6 +6,8 @@ param(
     [string]$ServerUser = 'schedule-publisher',
     [string]$IdentityFile = 'C:\ProgramData\Gymn19Schedule\schedule_publisher_ed25519',
     [string]$StateRoot = 'C:\ProgramData\Gymn19Schedule',
+    [string]$QueueUrl = 'https://rasp.gymn19.ru/api/schedule-upload',
+    [string]$QueueTokenFile = 'C:\ProgramData\Gymn19Schedule\upload-token.txt',
     [switch]$Force,
     [switch]$NoUpload
 )
@@ -200,15 +202,58 @@ public class ScheduleNative {
 '@
 }
 
+$queueHash = ''
+$queueToken = ''
+function Send-QueueState([string]$Path, [hashtable]$Payload) {
+    if (!$queueToken -or !$queueHash) { return }
+    $headers = @{ Authorization = "Bearer $queueToken" }
+    Invoke-RestMethod -UseBasicParsing -Method Post -Uri "$QueueUrl/$Path" -Headers $headers `
+        -ContentType 'application/json; charset=utf-8' -Body ($Payload | ConvertTo-Json -Compress) | Out-Null
+}
+
+function Get-QueuedSchedule([string]$Destination) {
+    if (!(Test-Path -LiteralPath $QueueTokenFile)) { return $false }
+    $script:queueToken = (Get-Content -LiteralPath $QueueTokenFile -Raw).Trim()
+    if (!$script:queueToken) { return $false }
+    $headers = @{ Authorization = "Bearer $script:queueToken" }
+    Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+    $response = Invoke-WebRequest -UseBasicParsing -Method Get -Uri "$QueueUrl/pending" -Headers $headers `
+        -OutFile $Destination -PassThru
+    if ([int]$response.StatusCode -eq 204) {
+        Remove-Item -LiteralPath $Destination -Force -ErrorAction SilentlyContinue
+        return $false
+    }
+    if ([int]$response.StatusCode -ne 200 -or !(Test-Path -LiteralPath $Destination) -or (Get-Item $Destination).Length -lt 16) {
+        throw 'Сервер вернул повреждённый файл очереди'
+    }
+    $script:queueHash = [string]$response.Headers['X-Schedule-Sha256']
+    if (!$script:queueHash) { $script:queueHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToLowerInvariant() }
+    Send-QueueState 'processing' @{ sha256 = $script:queueHash }
+    return $true
+}
+
 try {
-    if (!(Test-Path -LiteralPath $Source)) { throw "Файл расписания не найден: $Source" }
+    $queueSource = Join-Path $workRoot 'queued-schedule.rtt'
+    $activeSource = $Source
+    try {
+        if (Get-QueuedSchedule $queueSource) {
+            $activeSource = $queueSource
+            Write-Log 'Получено расписание, загруженное через сайт.'
+        }
+    }
+    catch {
+        $queueHash = ''
+        Write-Log "Очередь загрузки временно недоступна: $($_.Exception.Message)"
+    }
+    if (!(Test-Path -LiteralPath $activeSource)) { throw "Файл расписания не найден: $activeSource" }
     if (!(Test-Path -LiteralPath $RectorExe)) { throw "Программа «Ректор» не найдена: $RectorExe" }
-    $sourceItem = Get-Item -LiteralPath $Source
-    $sourceHash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash.ToLowerInvariant()
+    $sourceItem = Get-Item -LiteralPath $activeSource
+    $sourceHash = (Get-FileHash -LiteralPath $activeSource -Algorithm SHA256).Hash.ToLowerInvariant()
     if (!$Force -and (Test-Path $stateFile)) {
         $previous = Get-Content $stateFile -Raw | ConvertFrom-Json
         if ($previous.sha256 -eq $sourceHash) {
             Write-Log 'Изменений нет, публикация не требуется.'
+            if ($queueHash) { Send-QueueState 'complete' @{ sha256 = $queueHash; status = 'success'; message = 'Это расписание уже опубликовано.' } }
             exit 0
         }
     }
@@ -218,7 +263,7 @@ try {
     $exportRoot = Join-Path $runRoot 'data'
     New-Item -ItemType Directory -Path $exportRoot -Force | Out-Null
     $snapshot = Join-Path $runRoot 'schedule.rtt'
-    Copy-Item -LiteralPath $Source -Destination $snapshot -Force
+    Copy-Item -LiteralPath $activeSource -Destination $snapshot -Force
     Write-Log "Обнаружено новое расписание ($($sourceItem.LastWriteTime)). Начат экспорт."
     Export-RectorHtml $snapshot (Join-Path $exportRoot 'classes') 'Классы' 36
     Export-RectorHtml $snapshot (Join-Path $exportRoot 'teachers') 'Учителя' 91
@@ -247,9 +292,13 @@ try {
 
     [ordered]@{ sha256 = $sourceHash; published = (Get-Date).ToString('o') } |
         ConvertTo-Json | Set-Content $stateFile -Encoding utf8
-        Write-Log "Расписание успешно опубликовано. Файлов: $(@(Get-ChildItem $exportRoot -File -Recurse).Count)."
+    if ($queueHash) { Send-QueueState 'complete' @{ sha256 = $queueHash; status = 'success'; message = 'Новое расписание опубликовано.' } }
+    Write-Log "Расписание успешно опубликовано. Файлов: $(@(Get-ChildItem $exportRoot -File -Recurse).Count)."
 }
 catch {
     Write-Log "ОШИБКА: $($_.Exception.Message)"
+    if ($queueHash) {
+        try { Send-QueueState 'complete' @{ sha256 = $queueHash; status = 'error'; message = "Ошибка обработки: $($_.Exception.Message)" } } catch {}
+    }
     exit 1
 }

@@ -149,4 +149,92 @@ $('classSearch').addEventListener('input',(e)=>{populateOptions(e.target.value.t
 $('views').addEventListener('click',(e)=>{const b=e.target.closest('[data-view]');if(b)switchView(b.dataset.view);});
 $('days').addEventListener('click',(e)=>{const b=e.target.closest('[data-day]');if(!b)return;state.selectedDay=b.dataset.day;populateDays();render();});
 $('refresh').addEventListener('click',load);
+
+const uploadDialog = $('uploadDialog');
+const uploadForm = $('uploadForm');
+const uploadStatus = $('uploadStatus');
+const submitUpload = $('submitUpload');
+let uploadPoll = null;
+
+function showUploadStatus(message, type = '') {
+  uploadStatus.textContent = message;
+  uploadStatus.className = `upload-status${type ? ` ${type}` : ''}`;
+  uploadStatus.hidden = false;
+}
+function stopUploadPoll() {
+  if (uploadPoll) clearTimeout(uploadPoll);
+  uploadPoll = null;
+}
+function closeUploadDialog() {
+  stopUploadPoll();
+  uploadDialog.close();
+}
+async function pollUploadStatus(password, attempts = 0) {
+  try {
+    const response = await fetch('/api/schedule-upload/status', {
+      cache: 'no-store', headers: { Authorization: `Bearer ${password}` }
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Не удалось проверить состояние');
+    const types = { success: 'success', error: 'error' };
+    showUploadStatus(result.message || 'Файл ожидает обработки.', types[result.status] || '');
+    if (result.status === 'success') {
+      submitUpload.disabled = false;
+      submitUpload.textContent = 'Загрузить';
+      await load();
+      return;
+    }
+    if (result.status === 'error') {
+      submitUpload.disabled = false;
+      submitUpload.textContent = 'Повторить';
+      return;
+    }
+    if (attempts < 120) uploadPoll = setTimeout(() => pollUploadStatus(password, attempts + 1), 3000);
+  } catch (error) {
+    showUploadStatus(error.message, 'error');
+    submitUpload.disabled = false;
+    submitUpload.textContent = 'Повторить';
+  }
+}
+
+$('openUpload').addEventListener('click', () => {
+  uploadForm.reset();
+  uploadStatus.hidden = true;
+  submitUpload.disabled = false;
+  submitUpload.textContent = 'Загрузить';
+  uploadDialog.showModal();
+});
+$('closeUpload').addEventListener('click', closeUploadDialog);
+$('cancelUpload').addEventListener('click', closeUploadDialog);
+uploadDialog.addEventListener('cancel', stopUploadPoll);
+uploadForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  stopUploadPoll();
+  const file = $('scheduleFile').files[0];
+  const password = $('uploadPassword').value;
+  if (!file || !password) return;
+  submitUpload.disabled = true;
+  submitUpload.textContent = 'Загрузка…';
+  showUploadStatus('Передача файла на сервер…');
+  try {
+    const response = await fetch('/api/schedule-upload/upload', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${password}`,
+        'Content-Type': 'application/octet-stream',
+        'X-Filename': encodeURIComponent(file.name)
+      },
+      body: file
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error || 'Не удалось загрузить файл');
+    showUploadStatus(result.message || 'Файл принят.');
+    submitUpload.textContent = 'Обработка…';
+    pollUploadStatus(password);
+  } catch (error) {
+    showUploadStatus(error.message, 'error');
+    submitUpload.disabled = false;
+    submitUpload.textContent = 'Повторить';
+  }
+});
 load();

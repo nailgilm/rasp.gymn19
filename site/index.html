@@ -27,6 +27,7 @@
           <input id="classSearch" type="search" placeholder="Например, 7а" autocomplete="off">
         </div>
         <button id="refresh" class="refresh" type="button" title="Обновить данные">↻ Обновить</button>
+        <button id="openUpload" class="upload-open" type="button">↑ Загрузить расписание</button>
       </div>
 
       <div id="views" class="views" role="tablist" aria-label="Вид расписания">
@@ -50,9 +51,35 @@
     </section>
   </main>
 
+  <dialog id="uploadDialog" class="upload-dialog">
+    <form id="uploadForm" method="dialog">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">ОБНОВЛЕНИЕ ДАННЫХ</p>
+          <h2>Загрузить расписание</h2>
+        </div>
+        <button id="closeUpload" class="dialog-close" type="button" aria-label="Закрыть">×</button>
+      </div>
+      <p class="dialog-help">Выберите файл <strong>Расписание.rtt</strong> из программы «Ректор». После проверки он автоматически появится на сайте.</p>
+      <label class="upload-field">
+        <span>Файл расписания</span>
+        <input id="scheduleFile" type="file" accept=".rtt,application/octet-stream" required>
+      </label>
+      <label class="upload-field">
+        <span>Пароль загрузки</span>
+        <input id="uploadPassword" type="password" autocomplete="current-password" required>
+      </label>
+      <div id="uploadStatus" class="upload-status" hidden></div>
+      <div class="dialog-actions">
+        <button id="cancelUpload" class="button-secondary" type="button">Отмена</button>
+        <button id="submitUpload" class="button-primary" type="submit">Загрузить</button>
+      </div>
+    </form>
+  </dialog>
+
   <footer>
     <span>Локальная информационная система · данные из программы «Ректор»</span>
-    <strong>Разработка: <a href="https://nailgilm.github.io/sysadmin-portfolio/" target="_blank" rel="noreferrer">NG</a> · Версия rasp.gymn 1.0.0 · <a href="https://github.com/nailgilm/rasp.gymn19" target="_blank" rel="noreferrer">GitHub</a> (премию не дали)</strong>
+    <strong>Разработка: <a href="https://nailgilm.github.io/sysadmin-portfolio/" target="_blank" rel="noreferrer">NG</a> · Версия rasp.gymn 1.1.0 · <a href="https://github.com/nailgilm/rasp.gymn19" target="_blank" rel="noreferrer">GitHub</a> (премию не дали)</strong>
   </footer>
   <script src="/app.js" defer></script>
 </body>
