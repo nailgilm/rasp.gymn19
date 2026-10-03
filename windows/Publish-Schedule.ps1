@@ -249,11 +249,10 @@ try {
     if (!(Test-Path -LiteralPath $RectorExe)) { throw "Программа «Ректор» не найдена: $RectorExe" }
     $sourceItem = Get-Item -LiteralPath $activeSource
     $sourceHash = (Get-FileHash -LiteralPath $activeSource -Algorithm SHA256).Hash.ToLowerInvariant()
-    if (!$Force -and (Test-Path $stateFile)) {
+    if (!$Force -and !$queueHash -and (Test-Path $stateFile)) {
         $previous = Get-Content $stateFile -Raw | ConvertFrom-Json
         if ($previous.sha256 -eq $sourceHash) {
             Write-Log 'Изменений нет, публикация не требуется.'
-            if ($queueHash) { Send-QueueState 'complete' @{ sha256 = $queueHash; status = 'success'; message = 'Это расписание уже опубликовано.' } }
             exit 0
         }
     }
