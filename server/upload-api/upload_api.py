@@ -5,12 +5,14 @@ import hmac
 import json
 import os
 import re
+import secrets
 import shutil
 import tarfile
 import tempfile
 import threading
 import uuid
 from datetime import date, datetime, timezone
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -22,9 +24,18 @@ STATUS = DATA / "status.json"
 SUBSTITUTIONS = DATA / "substitutions.json"
 ARCHIVE = DATA / "html-archive"
 DATASETS = ("classes", "teachers", "rooms")
+BELL_TIMES = {
+    1: "08:00–08:45", 2: "08:50–09:35", 3: "09:45–10:30", 4: "10:40–11:25",
+    5: "11:40–12:25", 6: "12:40–13:25", 7: "13:35–14:20", 8: "14:25–15:10",
+    9: "15:15–16:00", 10: "16:05–16:50", 11: "16:55–17:40", 12: "17:45–18:30",
+    13: "18:35–19:20", 14: "19:25–20:10",
+}
 FILE_NAME = re.compile(r"^index(?:\d+)?\.html?$", re.IGNORECASE)
 PAGE_REFERENCE = re.compile(rb"index\d+\.html?", re.IGNORECASE)
 PUBLISH_LOCK = threading.Lock()
+SESSION_LOCK = threading.Lock()
+SESSIONS = {}
+SESSION_TTL = 8 * 60 * 60
 
 
 def utc_now():
@@ -61,72 +72,98 @@ def write_substitutions(value):
 
 
 def substitution_key(value):
-    return (value.get("className"), value.get("day"), value.get("lesson"))
+    classes = value.get("classNames") or [value.get("className")]
+    return (value.get("date") or value.get("day"), tuple(classes), value.get("lesson"))
+
+
+def parse_iso_date(value, message="Неверно указана дата"):
+    try:
+        return date.fromisoformat(str(value))
+    except ValueError:
+        raise ValueError(message) from None
+
+
+def teacher_absent(records, teacher, lesson_date):
+    for item in records:
+        if item.get("absentTeacher") != teacher:
+            continue
+        start = item.get("dateFrom")
+        finish = item.get("dateTo")
+        if start and finish and start <= lesson_date <= finish:
+            return True
+    return False
 
 
 def update_substitution(payload):
     action = payload.get("action", "set")
-    if action == "set-period":
-        absent = str(payload.get("absentTeacher", "")).strip()
-        date_from = str(payload.get("dateFrom", "")).strip()
-        date_to = str(payload.get("dateTo", "")).strip()
-        plan = payload.get("plan")
-        try:
-            start = date.fromisoformat(date_from)
-            finish = date.fromisoformat(date_to)
-        except ValueError:
-            raise ValueError("Неверно указан период отсутствия") from None
-        if not absent or finish < start or (finish - start).days > 62 or not isinstance(plan, list) or not plan:
-            raise ValueError("Проверьте учителя, период и план замен")
-        period_id = uuid.uuid4().hex
-        prepared = []
-        for item in plan:
-            class_name = str(item.get("className", "")).strip()
-            day = str(item.get("day", "")).strip()
-            replacement = str(item.get("replacementTeacher", "")).strip()
-            try:
-                lesson = int(item.get("lesson", 0))
-            except (TypeError, ValueError):
-                lesson = 0
-            if not class_name or not day or not replacement or replacement == absent or lesson < 1 or lesson > 20:
-                raise ValueError("План содержит незаполненную замену")
-            prepared.append({
-                "className": class_name, "day": day, "lesson": lesson,
-                "absentTeacher": absent, "replacementTeacher": replacement,
-                "dateFrom": date_from, "dateTo": date_to,
-                "periodId": period_id, "createdAt": utc_now(),
-            })
-        keys = {substitution_key(item) for item in prepared}
-        current = [item for item in read_substitutions() if substitution_key(item) not in keys]
-        current.extend(prepared)
-        write_substitutions(current)
-        return {"status": "success", "message": "План замен на период сохранён.", "substitutions": current, "periodId": period_id}
-    class_name = str(payload.get("className", "")).strip()
-    day = str(payload.get("day", "")).strip()
+    current = read_substitutions()
+    if action == "remove-period":
+        period_id = str(payload.get("periodId", "")).strip()
+        if not period_id:
+            raise ValueError("Не указан период замен")
+        updated = [item for item in current if item.get("periodId") != period_id]
+        write_substitutions(updated)
+        return {"status": "success", "message": "Период замен удалён.", "substitutions": updated}
+    if action != "set-period":
+        raise ValueError("Неизвестная операция с заменами")
+
     absent = str(payload.get("absentTeacher", "")).strip()
-    replacement = str(payload.get("replacementTeacher", "")).strip()
-    try:
-        lesson = int(payload.get("lesson", 0))
-    except (TypeError, ValueError):
-        lesson = 0
-    if not class_name or not day or lesson < 1 or lesson > 20:
-        raise ValueError("Не указаны класс, день или номер урока")
-    current = [item for item in read_substitutions() if substitution_key(item) != (class_name, day, lesson)]
-    if action == "remove":
-        write_substitutions(current)
-        return {"status": "success", "message": "Замена снята.", "substitutions": current}
-    if not absent or not replacement or absent == replacement:
-        raise ValueError("Нужно выбрать отсутствующего и заменяющего учителя")
-    current.append({
-        "className": class_name,
-        "day": day,
-        "lesson": lesson,
-        "absentTeacher": absent,
-        "replacementTeacher": replacement,
-        "createdAt": utc_now(),
-    })
-    write_substitutions(current)
-    return {"status": "success", "message": "Замена назначена.", "substitutions": current}
+    date_from = str(payload.get("dateFrom", "")).strip()
+    date_to = str(payload.get("dateTo", "")).strip()
+    plan = payload.get("plan")
+    start = parse_iso_date(date_from, "Неверно указан период отсутствия")
+    finish = parse_iso_date(date_to, "Неверно указан период отсутствия")
+    if not absent or finish < start or (finish - start).days > 62 or not isinstance(plan, list) or not plan:
+        raise ValueError("Проверьте учителя, период и план замен")
+
+    period_id = uuid.uuid4().hex
+    prepared = []
+    for item in plan:
+        lesson_date = str(item.get("date", "")).strip()
+        parsed_date = parse_iso_date(lesson_date)
+        classes = item.get("classNames")
+        if not isinstance(classes, list):
+            classes = [item.get("className")]
+        classes = [str(name).strip() for name in classes if str(name).strip()]
+        day = str(item.get("day", "")).strip()
+        subject = str(item.get("subject", "")).strip()
+        lesson_time = str(item.get("time", "")).strip()
+        replacement = str(item.get("replacementTeacher", "")).strip()
+        reason = str(item.get("reason", "")).strip()
+        try:
+            lesson = int(item.get("lesson", 0))
+        except (TypeError, ValueError):
+            lesson = 0
+        if not (start <= parsed_date <= finish) or not classes or not day or not subject or not lesson_time:
+            raise ValueError("План содержит неполные данные урока")
+        if not replacement or replacement == absent or lesson < 1 or lesson > 14:
+            raise ValueError("Для каждого урока нужно выбрать корректную замену")
+        if lesson_time != BELL_TIMES[lesson]:
+            raise ValueError("Время урока не соответствует расписанию звонков")
+        prepared.append({
+            "date": lesson_date, "day": day, "lesson": lesson, "time": lesson_time,
+            "classNames": classes, "subject": subject,
+            "absentTeacher": absent, "replacementTeacher": replacement,
+            "reason": reason or "Выбрано вручную", "dateFrom": date_from, "dateTo": date_to,
+            "periodId": period_id, "createdAt": utc_now(),
+        })
+
+    keys = {substitution_key(item) for item in prepared}
+    retained = [item for item in current if substitution_key(item) not in keys]
+    occupied = {(item.get("replacementTeacher"), item.get("date"), int(item.get("lesson", 0))) for item in retained}
+    planned = set()
+    absence_records = retained + prepared
+    for item in prepared:
+        slot = (item["replacementTeacher"], item["date"], item["lesson"])
+        if slot in occupied or slot in planned:
+            raise ValueError(f'{item["replacementTeacher"]} уже назначен на другую замену {item["date"]}, урок {item["lesson"]}')
+        if teacher_absent(absence_records, item["replacementTeacher"], item["date"]):
+            raise ValueError(f'{item["replacementTeacher"]} отсутствует {item["date"]}')
+        planned.add(slot)
+
+    updated = retained + prepared
+    write_substitutions(updated)
+    return {"status": "success", "message": "Замены на весь период сохранены.", "substitutions": updated, "periodId": period_id}
 
 
 def validate_payload(payload):
@@ -242,21 +279,41 @@ def publish(files, total_size):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "Gymn19ScheduleUpload/2.0"
+    server_version = "Gymn19ScheduleUpload/2.2"
 
     def log_message(self, pattern, *args):
         print(f"{self.address_string()} - {pattern % args}", flush=True)
 
-    def send_json(self, status, payload):
+    def send_json(self, status, payload, headers=None):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        for name, value in (headers or {}).items():
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
+    def session_token(self):
+        cookie = SimpleCookie(self.headers.get("Cookie", ""))
+        value = cookie.get("gymn19_admin")
+        return value.value if value else ""
+
+    def session_authorized(self):
+        token = self.session_token()
+        if not token:
+            return False
+        now = datetime.now(timezone.utc).timestamp()
+        with SESSION_LOCK:
+            expired = [key for key, deadline in SESSIONS.items() if deadline <= now]
+            for key in expired:
+                SESSIONS.pop(key, None)
+            return SESSIONS.get(token, 0) > now
+
     def authorized(self):
+        if self.session_authorized():
+            return True
         supplied = self.headers.get("Authorization", "")
         if supplied.startswith("Bearer "):
             supplied = supplied[7:]
@@ -282,12 +339,35 @@ class Handler(BaseHTTPRequestHandler):
                 return
             self.send_json(200, read_status())
             return
+        if path == "/session":
+            self.send_json(200, {"authenticated": self.session_authorized()})
+            return
         if path == "/substitutions":
             self.send_json(200, {"substitutions": read_substitutions()})
             return
         self.send_json(404, {"error": "not found"})
 
     def do_POST(self):
+        if self.path == "/session":
+            body = self.read_body()
+            if body is None:
+                self.send_json(400, {"error": "Введите пароль"})
+                return
+            try:
+                payload = json.loads(body.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                self.send_json(400, {"error": "Повреждённый запрос"})
+                return
+            supplied = str(payload.get("password", ""))
+            if not UPLOAD_PASSWORD or not hmac.compare_digest(supplied, UPLOAD_PASSWORD):
+                self.send_json(401, {"error": "Неверный пароль"})
+                return
+            token = secrets.token_urlsafe(32)
+            with SESSION_LOCK:
+                SESSIONS[token] = datetime.now(timezone.utc).timestamp() + SESSION_TTL
+            cookie = f"gymn19_admin={token}; Path=/api/schedule-upload/; Max-Age={SESSION_TTL}; HttpOnly; Secure; SameSite=Strict"
+            self.send_json(200, {"authenticated": True}, {"Set-Cookie": cookie})
+            return
         if self.path == "/substitutions":
             if not self.authorized():
                 self.send_json(401, {"error": "Неверный пароль"})
@@ -331,6 +411,16 @@ class Handler(BaseHTTPRequestHandler):
             failure = {"status": "error", "message": f"Ошибка публикации: {error}", "finishedAt": utc_now()}
             write_status(failure)
             self.send_json(500, {"error": failure["message"]})
+
+    def do_DELETE(self):
+        if self.path != "/session":
+            self.send_json(404, {"error": "not found"})
+            return
+        token = self.session_token()
+        with SESSION_LOCK:
+            SESSIONS.pop(token, None)
+        cookie = "gymn19_admin=; Path=/api/schedule-upload/; Max-Age=0; HttpOnly; Secure; SameSite=Strict"
+        self.send_json(200, {"authenticated": False}, {"Set-Cookie": cookie})
 
 
 if __name__ == "__main__":
