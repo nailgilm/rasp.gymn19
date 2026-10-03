@@ -191,9 +191,13 @@ function render() {
     const total = days.reduce((sum, day) => sum + (schedule.get(day) || []).filter((lesson) => lesson.primary || lesson.secondary).length, 0);
     $('heading').textContent = `${name} · Вся неделя`;
     $('lessonCount').textContent = total ? `${total} ${plural(total, 'урок', 'урока', 'уроков')} за неделю` : '';
+    $('schedule').classList.add('week-view');
+    $('schedule').style.setProperty('--week-days', days.length);
     $('schedule').innerHTML = days.map((day) => `<section class="week-day"><h2>${escapeHtml(day)}</h2>${renderLessons(prepareLessons(schedule.get(day) || []))}</section>`).join('');
     return;
   }
+  $('schedule').classList.remove('week-view');
+  $('schedule').style.removeProperty('--week-days');
   const lessons = prepareLessons(schedule.get(state.selectedDay) || []);
   const lessonTotal = lessons.filter((lesson) => lesson.primary || lesson.secondary).length;
   $('heading').textContent = `${name} · ${state.selectedDay}`;
