@@ -13,12 +13,12 @@ function clean(cell) {
   return copy.textContent.replace(/\u00a0/g, ' ').replace(/\s*\n\s*/g, ' / ').replace(/\s+/g, ' ').trim();
 }
 function naturalRu(a, b) { return a.localeCompare(b, 'ru', { numeric: true, sensitivity: 'base' }); }
-function put(view, name, day, lesson) {
+function put(view, name, day, lesson, keepEmpty = false) {
   if (!name || !day) return;
   const data = state.datasets[view];
   if (!data.has(name)) data.set(name, new Map());
   if (!data.get(name).has(day)) data.get(name).set(day, []);
-  if (lesson.primary || lesson.secondary) data.get(name).get(day).push(lesson);
+  if (keepEmpty || lesson.primary || lesson.secondary) data.get(name).get(day).push(lesson);
 }
 async function fetchCp1251(url) {
   const response = await fetch(`${url}?v=${Date.now()}`, { cache: 'no-store' });
@@ -42,7 +42,7 @@ function parseClasses(html) {
     const names = [...rows[0].querySelectorAll('th[colspan="2"]')].map(clean);
     rows.slice(2).forEach((row) => {
       const cells = [...row.querySelectorAll('th,td')]; const number = Number(clean(cells[0])); if (!number) return;
-      names.forEach((name, i) => put('classes', name, day, { number, primary: clean(cells[1 + i * 2]), secondary: clean(cells[2 + i * 2]) }));
+      names.forEach((name, i) => put('classes', name, day, { number, primary: clean(cells[1 + i * 2]), secondary: clean(cells[2 + i * 2]), teachers: [] }, true));
     });
   }
 }
@@ -57,7 +57,7 @@ function parseTeachers(html) {
     if (!day || !numbers.length) continue;
     rows.slice(3).forEach((row) => {
       const cells = [...row.querySelectorAll('th,td')]; const teacher = clean(cells[1]); if (!teacher) return;
-      numbers.forEach((number, i) => put('teachers', teacher, day, { number, primary: clean(cells[2 + i * 2]), secondary: clean(cells[3 + i * 2]) }));
+      numbers.forEach((number, i) => put('teachers', teacher, day, { number, primary: clean(cells[2 + i * 2]), secondary: clean(cells[3 + i * 2]) }, true));
     });
   }
 }
@@ -74,7 +74,7 @@ function parseRooms(html) {
       const cells = [...row.querySelectorAll('th,td')]; const number = Number(clean(cells[0])); if (!number) return;
       days.forEach((day, i) => {
         const raw = clean(cells[i + 1]); const parts = raw.split(',').map((part) => part.trim()).filter(Boolean);
-        put('rooms', room, day, { number, primary: parts.length > 2 ? parts.slice(2).join(', ') : raw, secondary: parts.length > 1 ? `${parts[0]} · ${parts[1]}` : '' });
+        put('rooms', room, day, { number, primary: parts.length > 2 ? parts.slice(2).join(', ') : raw, secondary: parts.length > 1 ? `${parts[0]} · ${parts[1]}` : '' }, true);
       });
     });
   }
@@ -92,12 +92,39 @@ async function loadVersion() {
   const version = await response.json(); const date = new Date(version.sourceModified);
   $('updated').textContent = `Обновлено: ${new Intl.DateTimeFormat('ru-RU', { dateStyle: 'short', timeStyle: 'short' }).format(date)}`;
 }
+function classKey(value) {
+  return value.toLocaleLowerCase('ru').replace(/\s+/g, '');
+}
+function addTeachersToClasses() {
+  const index = new Map();
+  for (const [teacher, days] of state.datasets.teachers) {
+    for (const [day, lessons] of days) {
+      for (const lesson of lessons) {
+        if (!lesson.primary) continue;
+        const classNames = lesson.primary.split(/\s*(?:\/|,|;|\n)\s*/).filter(Boolean);
+        for (const className of classNames) {
+          const key = `${day}|${lesson.number}|${classKey(className)}`;
+          if (!index.has(key)) index.set(key, new Set());
+          index.get(key).add(teacher);
+        }
+      }
+    }
+  }
+  for (const [className, days] of state.datasets.classes) {
+    for (const [day, lessons] of days) {
+      for (const lesson of lessons) {
+        lesson.teachers = [...(index.get(`${day}|${lesson.number}|${classKey(className)}`) || [])].sort(naturalRu);
+      }
+    }
+  }
+}
 async function load() {
   Object.values(state.datasets).forEach((data) => data.clear());
   $('notice').hidden = true; $('schedule').innerHTML = '<div class="skeleton"></div><div class="skeleton"></div><div class="skeleton"></div>';
   try {
     await loadVersion();
     await Promise.all([loadDataset('classes', parseClasses), loadDataset('teachers', parseTeachers), loadDataset('rooms', parseRooms)]);
+    addTeachersToClasses();
     for (const view of Object.keys(labels)) {
       const names = [...state.datasets[view].keys()].sort(naturalRu);
       const remembered = localStorage.getItem(`schedule-${view}`);
@@ -135,11 +162,26 @@ function populateDays(days = activeDays()) {
   $('days').innerHTML = days.map((day) => `<button type="button" class="day${day === state.selectedDay ? ' active' : ''}" data-day="${escapeHtml(day)}">${escapeHtml(day)}</button>`).join('');
 }
 function render() {
-  const name = state.selected[state.view]; const lessons = state.datasets[state.view].get(name)?.get(state.selectedDay) || [];
+  const name = state.selected[state.view]; const lessons = [...(state.datasets[state.view].get(name)?.get(state.selectedDay) || [])].sort((a,b) => a.number-b.number);
+  const lastOccupied = lessons.findLastIndex((lesson) => lesson.primary || lesson.secondary);
+  const visibleLessons = lastOccupied >= 0 ? lessons.slice(0, lastOccupied + 1) : [];
+  const lessonTotal = lessons.filter((lesson) => lesson.primary || lesson.secondary).length;
   $('heading').textContent = `${name} · ${state.selectedDay}`;
-  $('lessonCount').textContent = lessons.length ? `${lessons.length} ${plural(lessons.length, 'урок', 'урока', 'уроков')}` : '';
-  if (!lessons.length) { $('schedule').innerHTML = '<div class="empty-day">На этот день занятий нет</div>'; return; }
-  $('schedule').innerHTML = lessons.sort((a,b) => a.number-b.number).map((lesson) => `<article class="lesson"><div class="number">${lesson.number}</div><div class="subject">${lesson.primary.split(' / ').map((part) => `<span class="part">${escapeHtml(part)}</span>`).join('')}</div><div class="rooms">${lesson.secondary ? lesson.secondary.split(' / ').map((part) => `<span class="room">${escapeHtml(part)}</span>`).join('') : '<span class="room empty">—</span>'}</div></article>`).join('');
+  $('lessonCount').textContent = lessonTotal ? `${lessonTotal} ${plural(lessonTotal, 'урок', 'урока', 'уроков')}` : '';
+  if (!visibleLessons.length) { $('schedule').innerHTML = '<div class="empty-day">На этот день занятий нет</div>'; return; }
+  $('schedule').innerHTML = visibleLessons.map((lesson) => {
+    const empty = !lesson.primary && !lesson.secondary;
+    const subject = empty
+      ? '<span class="part no-lesson">Нет урока</span>'
+      : lesson.primary.split(' / ').map((part) => `<span class="part">${escapeHtml(part)}</span>`).join('');
+    const teachers = state.view === 'classes' && lesson.teachers?.length
+      ? `<div class="teachers" aria-label="Учителя">${lesson.teachers.map((teacher) => `<span class="teacher">${escapeHtml(teacher)}</span>`).join('')}</div>`
+      : '';
+    const rooms = lesson.secondary
+      ? lesson.secondary.split(' / ').map((part) => `<span class="room">${escapeHtml(part)}</span>`).join('')
+      : '<span class="room empty">—</span>';
+    return `<article class="lesson${empty ? ' empty-lesson' : ''}"><div class="number">${lesson.number}</div><div class="subject">${subject}${teachers}</div><div class="rooms">${rooms}</div></article>`;
+  }).join('');
 }
 function plural(n, one, few, many) { const a=n%10,b=n%100; return a===1&&b!==11?one:a>=2&&a<=4&&(b<12||b>14)?few:many; }
 function escapeHtml(value) { return String(value).replace(/[&<>"]/g,(ch)=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' })[ch]); }
